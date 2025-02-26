@@ -78,14 +78,13 @@ enum Console {
   static let print = { @Sendable (message: String) in succeed(Swift.print(message)) }
 }
 
-
 flatMap(testZip) { value in
   Console.print("flatMapped: \(value)")
 }.run {}
 
 struct asyncEffect<A: Sendable>: Effect {
   let run: Run<A>
-  
+
   init(_ run: @escaping Run<A>) {
     self.run = run
   }
