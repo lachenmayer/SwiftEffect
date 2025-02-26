@@ -1,14 +1,39 @@
 public protocol Effectful: Sendable {
   associatedtype Value: Sendable
+}
 
-  func run(_ continuation: @Sendable @escaping (Value) -> Void)
+extension Effectful {
+  func run(_ continuation: @Sendable @escaping (Value) -> Void) {
+    switch self {
+    case let succeed as Succeed<Value>:
+      continuation(succeed.getValue())
+    case let asyncEffect as Async<Value>:
+      asyncEffect.effect(continuation)
+    case let map as Map<Sendable, Value>:
+      map.effect.run { value in
+        continuation(map.f(value))
+      }
+    case let flatMap as FlatMap<Sendable, Self>:
+      flatMap.effect.run { value in
+        flatMap.f(value).run(continuation)
+      }
+    case let zip as Zip<Sendable, Sendable>:
+      zip.a.run { aValue in
+        zip.b.run { bValue in
+          continuation((aValue, bValue))
+        }
+      }
+    default:
+      // do nothing
+    }
+  }
 }
 
 public enum Effect {
   public static func succeed<A: Sendable>(_ value: @Sendable @autoclosure @escaping () -> A)
     -> Succeed<A>
   {
-    Succeed(value: value)
+    Succeed(getValue: value)
   }
 
   public static func `async`<A: Sendable>(
@@ -60,67 +85,53 @@ extension Effectful {
   public func map<Out: Sendable>(
     _ f: @Sendable @escaping (Self.Value) -> Out
   )
-    -> Map<Self, Out>
+    -> Map<Self.Value, Out>
   {
-    Map(effect: self, f: f)
+    Map(effect: self.erase(), f: f)
   }
 
   public func flatMap<Out: Effectful>(
     _ f: @Sendable @escaping (Self.Value) -> Out
   )
-    -> FlatMap<Self, Out>
+    -> FlatMap<Self.Value, Out>
   {
-    FlatMap(effect: self, f: f)
+    FlatMap(effect: self.erase(), f: f)
   }
 }
 
 public struct Succeed<A: Sendable>: Effectful {
-  let value: @Sendable () -> A
+  public typealias Value = A
 
-  public func run(_ continuation: (A) -> Void) {
-    continuation(value())
-  }
+  let getValue: @Sendable () -> A
 }
 
 public struct Async<A: Sendable>: Effectful {
+  public typealias Value = A
+
   let effect: @Sendable (_ continuation: @Sendable @escaping (A) -> Void) -> Void
-
-  public func run(_ continuation: @Sendable @escaping (A) -> Void) {
-    effect(continuation)
-  }
 }
 
-public struct Map<In: Effectful, Out: Sendable>: Effectful {
-  let effect: In
-  let f: @Sendable (In.Value) -> Out
+public struct Map<In: Sendable, Out: Sendable>: Effectful {
+  public typealias Value = Out
 
-  public func run(_ continuation: @Sendable @escaping (Out) -> Void) {
-    effect.run { value in
-      continuation(f(value))
-    }
-  }
+  let effect: AnyEffect<In>
+  let f: @Sendable (In) -> Out
 }
 
-public struct FlatMap<In: Effectful, Out: Effectful>: Effectful {
-  let effect: In
-  let f: @Sendable (In.Value) -> Out
+public struct FlatMap<In: Sendable, Out: Effectful>: Effectful {
+  public typealias Value = Out.Value
 
-  public func run(_ continuation: @Sendable @escaping (Out.Value) -> Void) {
-    effect.run { value in
-      f(value).run(continuation)
-    }
-  }
+  let effect: AnyEffect<In>
+  let f: @Sendable (In) -> Out
 }
 
-public struct Zip<A: Effectful, B: Effectful>: Effectful {
-  let a: A
-  let b: B
+public struct Zip<A: Sendable, B: Sendable>: Effectful {
+  public typealias Value = (A, B)
 
-  public func run(_ continuation: @Sendable @escaping ((A.Value, B.Value)) -> Void) {
-    a.run { aValue in
-      b.run { bValue in
-        continuation((aValue, bValue))
-      }
-    }
-  }
+  let a: AnyEffect<A>
+  let b: AnyEffect<B>
+
+  //  public func run(_ continuation: @Sendable @escaping ((A.Value, B.Value)) -> Void) {
+ 
+  //  }
 }
