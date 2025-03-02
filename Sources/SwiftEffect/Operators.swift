@@ -71,8 +71,10 @@ extension Effectful {
     .erase()
   }
 
-  public func then<Next: Effectful>(_ next: Next) -> AnyEffect<Next.Value> {
-    self.zipWith(next) { _, value in value }
+  public func then<Next: Effectful>(_ next: @autoclosure @Sendable @escaping () -> Next)
+    -> AnyEffect<Next.Value>
+  {
+    self.zipWith(Effect.succeed(next()).flatten()) { _, value in value }
       .erase()
   }
 
@@ -85,16 +87,16 @@ extension Effectful {
 public struct Succeed<A: Sendable>: Effectful {
   let value: @Sendable () -> A
 
-  public func run(_ continuation: (A) -> Void) {
-    continuation(value())
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (A) -> Void) {
+    scheduler.schedule { continuation(value()) }
   }
 }
 
 public struct Async<A: Sendable>: Effectful {
   let effect: @Sendable (_ continuation: @Sendable @escaping (A) -> Void) -> Void
 
-  public func run(_ continuation: @Sendable @escaping (A) -> Void) {
-    effect(continuation)
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (A) -> Void) {
+    scheduler.schedule { effect(continuation) }
   }
 }
 
@@ -102,9 +104,11 @@ public struct Map<In: Effectful, Out: Sendable>: Effectful {
   let effect: In
   let f: @Sendable (In.Value) -> Out
 
-  public func run(_ continuation: @Sendable @escaping (Out) -> Void) {
-    effect.run { value in
-      continuation(f(value))
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out) -> Void) {
+    scheduler.schedule {
+      effect.run(scheduler: scheduler) { value in
+        continuation(f(value))
+      }
     }
   }
 }
@@ -113,9 +117,11 @@ public struct FlatMap<In: Effectful, Out: Effectful>: Effectful {
   let effect: In
   let f: @Sendable (In.Value) -> Out
 
-  public func run(_ continuation: @Sendable @escaping (Out.Value) -> Void) {
-    effect.run { value in
-      f(value).run(continuation)
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out.Value) -> Void) {
+    scheduler.schedule {
+      effect.run(scheduler: scheduler) { value in
+        f(value).run(scheduler: scheduler, continuation)
+      }
     }
   }
 }
@@ -129,10 +135,14 @@ public struct ZipWith<Left: Effectful, Right: Effectful, Out: Sendable>: Effectf
   let right: Right
   let combine: @Sendable (Left.Value, Right.Value) -> Out
 
-  public func run(_ continuation: @Sendable @escaping (Out) -> Void) {
-    left.run { aValue in
-      right.run { bValue in
-        continuation(combine(aValue, bValue))
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out) -> Void) {
+    scheduler.schedule {
+      left.run(scheduler: scheduler) { aValue in
+        scheduler.schedule {
+          right.run(scheduler: scheduler) { bValue in
+            continuation(combine(aValue, bValue))
+          }
+        }
       }
     }
   }

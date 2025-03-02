@@ -206,3 +206,21 @@ Interestingly, we can only run about 2.5k _howdy_s before the stack blows up. I 
 In ZFS part 2, they implement a centralized `run` method, which pattern matches over the different `ZIO` case classes. I briefly attempted this solution the other day (on branch `centralized-run`), but I feel like it's impossible to implement this with the Swift type system.
 
 Instead, I'm going to try implementing a generic trampoline / run queue.
+
+Could I use `TaskExecutor` for this, and `enqueue` tasks instead of calling functions? I don't really understand how this works...
+
+For now, I'm just going to implement the most basic possible scheduler: just run everything on the main actor, in an unstructured task. This is probably not correct, but it does fix the "10000 howdy" problem for now:
+
+```swift
+typealias Continuation = @Sendable () -> Void
+
+public struct Scheduler: Sendable {
+  static let shared = Self()
+
+  func schedule(_ continuation: @escaping Continuation) {
+    Task { await MainActor.run { continuation() } }
+  }
+}
+```
+
+Every `Effectful` now takes a `scheduler: Scheduler` (this should probably be a protocol eventually), and schedules continuations instead of calling them directly. I'm sure there are ways to optimize this that don't involve creating tasks where they are not needed, but this does the trick for now. Onto more interesting problems.

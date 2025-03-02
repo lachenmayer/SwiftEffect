@@ -1,20 +1,22 @@
 public protocol Effectful: Sendable {
   associatedtype Value: Sendable
 
-  func run(_ continuation: @Sendable @escaping (Value) -> Void)
+  func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Value) -> Void)
 }
 
 public struct AnyEffect<A: Sendable>: Effectful {
   public typealias Value = A
 
-  private let _run: @Sendable (_ continuation: @Sendable @escaping (A) -> Void) -> Void
+  private let _run:
+    @Sendable (_ scheduler: Scheduler, _ continuation: @Sendable @escaping (A) -> Void) ->
+      Void
 
   init<E: Effectful>(_ effect: E) where E.Value == A {
     self._run = effect.run
   }
 
-  public func run(_ continuation: @Sendable @escaping (A) -> Void) {
-    _run(continuation)
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (A) -> Void) {
+    _run(scheduler, continuation)
   }
 }
 
@@ -27,8 +29,8 @@ extension Effectful {
 extension Effectful {
   public var value: Value {
     get async {
-      await withCheckedContinuation { continuation in
-        self.run { value in continuation.resume(returning: value) }
+      return await withCheckedContinuation { continuation in
+        self.run(scheduler: Scheduler.shared) { value in continuation.resume(returning: value) }
       }
     }
   }

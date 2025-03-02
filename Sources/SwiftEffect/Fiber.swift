@@ -23,7 +23,7 @@ extension Effectful {
 public struct Fork<E: Effectful>: Effectful {
   let effect: E
 
-  public func run(_ continuation: @Sendable @escaping (Fiber<E>) -> Void) {
-    continuation(Fiber(effect))
+  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Fiber<E>) -> Void) {
+    scheduler.schedule { continuation(Fiber(effect)) }
   }
 }
