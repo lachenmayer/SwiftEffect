@@ -5,7 +5,7 @@ import Testing
 @Test func basicOperators() async throws {
   let num = Effect.succeed(3)
   let str = Effect.succeed("hello")
-  let eff = Effect.zip(num, str)
+  let eff = num.zip(str)
     .map { num, str in "got a number: \(num) and a string: \(str)" }
     .flatMap { str in
       Effect.async {
@@ -28,10 +28,10 @@ import Testing
   }
   let one = someAsyncWork.fork
   let two = someAsyncWork.fork
-  let result = Effect.zip(one, two)
+  let result = one.zip(two)
     .flatMap { one, two in
       print("nice")
-      return Effect.zip(one.join, two.join)
+      return one.join.zip(two.join)
     }
   let value = await result.value
   #expect(value == (50, 50))
@@ -43,8 +43,12 @@ import Testing
     try? await Task.sleep(for: .seconds(2))
     return 50
   }
-  let result = Effect.zipPar(someAsyncWork, someAsyncWork)
+  let result = someAsyncWork.zipPar(someAsyncWork)
   let value = await result.value
   print("zipPar end: \(Date.now)")
   #expect(value == (50, 50))
+}
+
+@Test func stackSafety() async throws {
+  await Effect.succeed(print("howdy")).repeat(times: 10000).value
 }

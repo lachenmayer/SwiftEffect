@@ -113,7 +113,7 @@ Again, this is exactly the same as SwiftUI's `AnyView`, which is essential for w
 
 I am going to try continuing along with the "ZIO from scratch" series, the next step is to implement basic fibers, so that it's possible to fork/join `Effect`s. I feel like this should be doable using `Task`s: Swift's task system is basically already a fiber runtime, so it shouldn't be too challenging to get a naïve implementation working.
 
-### 2025-03-02: Fork/join, `zipPar`
+### 2025-03-02: Fork/join, `zipPar`, stack safety
 
 Implementing fork/join is as easy as I'd hoped. This makes use of our existing `value` getter, which uses `withCheckedContinuation` under the hood:
 
@@ -192,3 +192,17 @@ public enum Effect {
 ```
 
 I'm not defining a named struct for this for now, as this isn't a primitive. I'd like to be able to just return `some Effectful`, but we can't do this because the value type is not part of the type signature.
+
+Next up is the stack safety section from ZFS part 2: we define a `repeat(times: Int)` operator, which currently fails the following test:
+
+```swift
+@Test func stackSafety() async throws {
+  await Effect.succeed(print("howdy")).repeat(times: 10000).value
+}
+```
+
+Interestingly, we can only run about 2.5k _howdy_s before the stack blows up. I would have expected this to be slightly larger, but maybe this is because we're running this inside a task / async context?
+
+In ZFS part 2, they implement a centralized `run` method, which pattern matches over the different `ZIO` case classes. I briefly attempted this solution the other day (on branch `centralized-run`), but I feel like it's impossible to implement this with the Swift type system.
+
+Instead, I'm going to try implementing a generic trampoline / run queue.
