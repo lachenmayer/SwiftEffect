@@ -19,10 +19,28 @@ public enum Effect {
     Async(effect: effect)
   }
 
+  public static func `async`<A: Sendable>(_ asyncFn: @Sendable @escaping () async -> A) -> Async<A>
+  {
+    Effect.async { continuation in
+      Task {
+        let value = await asyncFn()
+        continuation(value)
+      }
+    }
+  }
+
   public static func zip<A: Effectful, B: Effectful>(_ a: A, _ b: B)
     -> Zip<A, B>
   {
     Zip(a: a, b: b)
+  }
+
+  public static func zipPar<A: Effectful, B: Effectful>(_ a: A, _ b: B)
+    -> AnyEffect<(A.Value, B.Value)>
+  {
+    Effect.zip(a.fork, b.fork)
+      .flatMap { aFiber, bFiber in Effect.zip(aFiber.join, bFiber.join) }
+      .erase()
   }
 }
 
@@ -122,5 +140,37 @@ public struct Zip<A: Effectful, B: Effectful>: Effectful {
         continuation((aValue, bValue))
       }
     }
+  }
+}
+
+// MARK: - Fibers
+
+extension Effectful {
+  public var fork: Fork<Self> {
+    Fork(effect: self)
+  }
+}
+
+public struct Fork<E: Effectful>: Effectful {
+  let effect: E
+
+  public func run(_ continuation: @Sendable @escaping (Fiber<E>) -> Void) {
+    continuation(Fiber(effect))
+  }
+}
+
+public struct Fiber<E: Effectful>: Sendable {
+  private let task: Task<E.Value, Never>
+
+  init(_ value: E) {
+    task = Task {
+      await value.value
+    }
+  }
+
+  public var join: AnyEffect<E.Value> {
+    Effect.async {
+      await task.value
+    }.erase()
   }
 }

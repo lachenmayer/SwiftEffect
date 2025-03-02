@@ -112,3 +112,83 @@ let erased: AnyEffect<String> = eff.erase()
 Again, this is exactly the same as SwiftUI's `AnyView`, which is essential for writing any meaningfully composable SwiftUI code. I really wish protocols with generics weren't so obtuse in Swift. If I have a protocol `Effectful`, I would like to be able to write `Effectful<A>`, but this is not possible: I have to do some crazy gymnastics with `where` clauses in the type definitions, which is impossible in some cases. I also can't assign a protocol as a field in a struct, because this turns into `any Effectful`, losing the type parameter. So for any useful generic type, we have to manually derive the equivalent type-erased type, and use this everywhere we pass around these types. I wish the compiler could do this for us (we're effectively manually implementing dynamic dispatch here!).
 
 I am going to try continuing along with the "ZIO from scratch" series, the next step is to implement basic fibers, so that it's possible to fork/join `Effect`s. I feel like this should be doable using `Task`s: Swift's task system is basically already a fiber runtime, so it shouldn't be too challenging to get a naïve implementation working.
+
+### 2025-03-02: Fork/join, `zipPar`
+
+Implementing fork/join is as easy as I'd hoped. This makes use of our existing `value` getter, which uses `withCheckedContinuation` under the hood:
+
+```swift
+extension Effectful {
+  public var fork: Fork<Self> {
+    Fork(effect: self)
+  }
+}
+
+public struct Fork<E: Effectful>: Effectful {
+  let effect: E
+
+  public func run(_ continuation: @Sendable @escaping (Fiber<E>) -> Void) {
+    continuation(Fiber(effect))
+  }
+}
+
+public struct Fiber<E: Effectful>: Sendable {
+  private let task: Task<E.Value, Never>
+
+  init(_ value: E) {
+    task = Task {
+      await value.value
+    }
+  }
+
+  public var join: AnyEffect<E.Value> {
+    Effect.async {
+      await task.value
+    }.erase()
+  }
+}
+```
+
+I also implemented a simple helper which makes it more convenient to use async functions:
+
+```swift
+public enum Effect {
+  // ...
+
+  public static func `async`<A: Sendable>(_ asyncFn: @Sendable @escaping () async -> A) -> Async<A>
+  {
+    Effect.async { continuation in
+      Task {
+        let value = await asyncFn()
+        continuation(value)
+      }
+    }
+  }
+
+  // ...
+}
+```
+
+In the "ZIO from scratch" series (ZFS from now on), their initial implementation is unsafe, as it relies on mutable state. They have to fix this to use atomic references (in part 2). Instead, we can just trust Swift's async runtime to do all of this for us -- safely!
+
+The fact that `Fiber` and `Task` map so cleanly is very encouraging.
+
+Implementing `zipPar` is trivial (and slightly different to the ZFS implementation): zip the forked fibers, and then zip the joins:
+
+```swift
+public enum Effect {
+  // ...
+
+  public static func zipPar<A: Effectful, B: Effectful>(_ a: A, _ b: B)
+    -> AnyEffect<(A.Value, B.Value)>
+  {
+    Effect.zip(a.fork, b.fork)
+      .flatMap { aFiber, bFiber in Effect.zip(aFiber.join, bFiber.join) }
+      .erase()
+  }
+
+  // ...
+}
+```
+
+I'm not defining a named struct for this for now, as this isn't a primitive. I'd like to be able to just return `some Effectful`, but we can't do this because the value type is not part of the type signature.
