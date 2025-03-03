@@ -50,5 +50,5 @@ import Testing
 }
 
 @Test func stackSafety() async throws {
-  await Effect.succeed(print("howdy")).repeat(times: 10000).value
+  await Effect.succeed(print("howdy")).repeat(times: 100000).value
 }

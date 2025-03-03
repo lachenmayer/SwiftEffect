@@ -105,8 +105,8 @@ public struct Map<In: Effectful, Out: Sendable>: Effectful {
   let f: @Sendable (In.Value) -> Out
 
   public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out) -> Void) {
-    scheduler.schedule {
-      effect.run(scheduler: scheduler) { value in
+    effect.run(scheduler: scheduler) { value in
+      scheduler.schedule {
         continuation(f(value))
       }
     }
@@ -118,8 +118,8 @@ public struct FlatMap<In: Effectful, Out: Effectful>: Effectful {
   let f: @Sendable (In.Value) -> Out
 
   public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out.Value) -> Void) {
-    scheduler.schedule {
-      effect.run(scheduler: scheduler) { value in
+    effect.run(scheduler: scheduler) { value in
+      scheduler.schedule {
         f(value).run(scheduler: scheduler, continuation)
       }
     }
@@ -136,12 +136,10 @@ public struct ZipWith<Left: Effectful, Right: Effectful, Out: Sendable>: Effectf
   let combine: @Sendable (Left.Value, Right.Value) -> Out
 
   public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Out) -> Void) {
-    scheduler.schedule {
-      left.run(scheduler: scheduler) { aValue in
+    left.run(scheduler: scheduler) { aValue in
+      right.run(scheduler: scheduler) { bValue in
         scheduler.schedule {
-          right.run(scheduler: scheduler) { bValue in
-            continuation(combine(aValue, bValue))
-          }
+          continuation(combine(aValue, bValue))
         }
       }
     }
