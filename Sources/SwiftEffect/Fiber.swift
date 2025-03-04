@@ -1,15 +1,15 @@
 public struct Fiber<E: Effectful>: Sendable {
-  private let task: Task<E.Value, Never>
+  private let task: Task<E.Val, E.Err>
 
   init(_ value: E) {
-    task = Task {
-      await value.value
+    task = Task<E.Val, E.Err> {
+      try await value.value
     }
   }
 
-  public var join: AnyEffect<E.Value> {
+  public var join: AnyEffect<E.Val, E.Err> {
     Effect.async {
-      await task.value
+      try await task.value
     }.erase()
   }
 }

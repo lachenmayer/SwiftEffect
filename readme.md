@@ -201,7 +201,7 @@ Next up is the stack safety section from ZFS part 2: we define a `repeat(times: 
 }
 ```
 
-Interestingly, we can only run about 2.5k _howdy_s before the stack blows up. I would have expected this to be slightly larger, but maybe this is because we're running this inside a task / async context?
+Interestingly, we can only run about 2.5k _howdys_ before the stack blows up. I would have expected this to be slightly larger, but maybe this is because we're running this inside a task / async context?
 
 In ZFS part 2, they implement a centralized `run` method, which pattern matches over the different `ZIO` case classes. I briefly attempted this solution the other day (on branch `centralized-run`), but I feel like it's impossible to implement this with the Swift type system.
 
@@ -225,4 +225,23 @@ public struct Scheduler: Sendable {
 
 Every `Effectful` now takes a `scheduler: Scheduler` (this should probably be a protocol eventually), and schedules continuations instead of calling them directly. I'm sure there are ways to optimize this that don't involve creating tasks where they are not needed, but this does the trick for now. Onto more interesting problems.
 
-We could also use `DispatchQueue.global().async { continuation() }`, but this requires a `Foundation` import, and doesn't seem to bring any performance benefits, at least for the 100k case. Both run for ~3.4 seconds currently. This seems kind of slow...
+We could also use `DispatchQueue.global().async { continuation() }`, but this requires a `Foundation` import, and doesn't seem to bring any performance benefits, at least for the 100k case. Both run for ~3.4 seconds currently. This seems kind of slow...? (3.4µs per howdy) In ZFS part 3, I can see that their implementation runs in 6 seconds, so at least we're in the same ballpark (one iteration of Moore's law later).
+
+### 2025-03-03
+
+The first half of [ZFS part 3](https://www.youtube.com/watch?v=0IU9mGO_9Rw&list=PLvdARMfvom9B21CNSdn88ldDKCWKZ8Kfx&index=3) all seem to be Scala implementation details -- I don't think we need to implement `FiberContext`, because we already have `Task`, which does all of this behind the scenes. I also don't care about executor contexts (yet). `Scheduler` is our current equivalent of this (maybe this should be called `ExecutorContext`), but I don't care about being able to override this just yet. Implementing this with `Task` allows users to run this on any actor, or nonisolated context, so I really don't see what other executor context you would need, apart from maybe some alternate implementations for backwards compatibility.
+
+Much more interesting is adding the error type. Swift's error types are generally hobbled by the fact that Swift doesn't have union types, but let's see if we can find a solution to this.
+
+One trick I want to try is to use class types for errors. These have actual subtyping relationships, so it could maybe be possible to actually implement these.
+
+One immediate roadblock is that `Task` does not have an initializer which has a typed throw for its `Failure` type parameter -- am I just using an old runtime, or why does this not exist? It's impossible to create a `Failure` value any other way (safely at least).
+
+Let's see if there are any Rust zio implementations -- I believe Rust's type system has the same problem.
+
+https://crates.io/crates/env-io exists, this does look very interesting: https://github.com/jonathanrlouie/env-io/blob/master/src/envio.rs
+
+First reaction is that maybe we should maybe try to model effects as an enum after all...  I have a feeling this doesn't actually handle errors as we'd expect.
+
+A next idea is to explicitly model covariance/contravariance using some equivalent of Rust's `PhantomData`. For example: https://gitlab.com/nwn/variance
+
