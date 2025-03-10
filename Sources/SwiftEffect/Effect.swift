@@ -1,24 +1,27 @@
 public protocol Effectful: Sendable {
   associatedtype Val: Sendable
-  associatedtype Err: Error
+  associatedtype Err: EffectError
 
   typealias Res = Result<Val, Err>
 
   func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Res) -> Void)
 }
 
-public class EffectError: Error, @unchecked Sendable {}
+open class EffectError: Error, @unchecked Sendable {
+  public let tag: String
+  public let message: String
 
-extension Effectful where Err == Never {
-  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Val) -> Void) {
-    self.run(
-      scheduler: scheduler,
-      { value in continuation(value.get()) }
-    )
+  public required init(tag: String, message: String) {
+    self.tag = tag
+    self.message = message
+  }
+
+  public static func die(_ message: String) -> Self {
+    Self(tag: "@SwiftEffect/die", message: message)
   }
 }
 
-public struct AnyEffect<Val: Sendable, Err: Error>: Effectful {
+public struct AnyEffect<Val: Sendable, Err: EffectError>: Effectful {
   public typealias Val = Val
   public typealias Err = Err
 
@@ -46,14 +49,10 @@ extension Effectful {
 }
 
 extension Effectful {
-  public var value: Val {
-    get async throws(Err) {
-      do {
-        return try await withCheckedThrowingContinuation { continuation in
-          self.run(scheduler: Scheduler.shared) { value in continuation.resume(with: value) }
-        }
-      } catch {
-        throw error as! Err
+  public var value: Result<Val, Err> {
+    get async {
+      await withCheckedContinuation { continuation in
+        self.run(scheduler: Scheduler.shared) { value in continuation.resume(returning: value) }
       }
     }
   }

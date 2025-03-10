@@ -1,15 +1,15 @@
 public struct Fiber<E: Effectful>: Sendable {
-  private let task: Task<E.Val, E.Err>
+  private let task: Task<E.Res, Never>
 
-  init(_ value: E) {
-    task = Task<E.Val, E.Err> {
-      try await value.value
+  init(_ effect: E) {
+    task = Task<E.Res, Never> {
+      await effect.value
     }
   }
 
   public var join: AnyEffect<E.Val, E.Err> {
     Effect.async {
-      try await task.value
+      await task.value
     }.erase()
   }
 }
@@ -21,9 +21,15 @@ extension Effectful {
 }
 
 public struct Fork<E: Effectful>: Effectful {
+  public typealias Val = Fiber<E>
+  public typealias Err = EffectError
+
   let effect: E
 
-  public func run(scheduler: Scheduler, _ continuation: @Sendable @escaping (Fiber<E>) -> Void) {
-    scheduler.schedule { continuation(Fiber(effect)) }
+  public func run(
+    scheduler: Scheduler,
+    _ continuation: @Sendable @escaping (Result<Fiber<E>, EffectError>) -> Void
+  ) {
+    scheduler.schedule { continuation(.success(Fiber(effect))) }
   }
 }

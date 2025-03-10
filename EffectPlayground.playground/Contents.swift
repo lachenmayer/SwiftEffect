@@ -1,95 +1,101 @@
-typealias Run<A> = @Sendable (_ continuation: (A) -> Void) -> Void
-
-protocol Effect: Sendable {
-  associatedtype Value: Sendable
-  var run: Run<Value> { get }
+protocol Tagged {
+  typealias Tag = String
+  static var tag: Tag { get }
 }
 
-// succeed
+protocol Resource: Tagged {}
 
-struct succeed<A: Sendable>: Effect {
-  let run: Run<A>
+protocol TaggedError: Tagged, Error {}
 
-  init(_ value: @Sendable @autoclosure @escaping () -> A) {
-    run = { continuation in continuation(value()) }
+struct ResourceContext {
+  private let provided: [Resource.Tag: Resource]
+
+  struct NotProvidedError: TaggedError {
+    static let tag = "NotProvidedError"
+    let resource: Resource.Tag
   }
-}
 
-let testSucceed = succeed(42)
+  static func empty() -> Self {
+    ResourceContext(provided: [:])
+  }
 
-testSucceed.run { value in print("hey, \(value)") }
+  func provide<R: Resource>(_ resource: R) -> Self {
+    var provided = self.provided
+    provided[R.tag] = resource
+    return Self(provided: provided)
+  }
 
-// zip
-
-struct zip<A: Effect, B: Effect>: Effect {
-  let run: Run<(A.Value, B.Value)>
-
-  init(_ a: A, _ b: B) {
-    self.run = { continuation in
-      a.run { aValue in
-        b.run { bValue in
-          continuation((aValue, bValue))
-        }
-      }
+  func get<R: Resource>(_ resource: R.Type) throws -> R {
+    if let provided = provided[R.tag] as? R {
+      return provided
+    } else {
+      throw NotProvidedError(resource: R.tag)
     }
   }
 }
 
-let testZip = zip(succeed(1), succeed("hi"))
+struct Console: Resource {
+  static let tag = "Console"
+  let print: (String) -> Void
+}
 
-testZip.run { (a, b) in print("\(a), \(b)") }
+struct Timer: Resource {
+  static let tag = "Timer"
+  let now: () -> UInt64
+}
 
-// map
+func helloWorld(context: ResourceContext) {
+  let console = try! context.get(Console.self)
+  console.print("Hello!")
+}
 
-struct map<In: Effect, Out: Sendable>: Effect {
-  let run: Run<Out>
+let resources: [Resource.Type] = [Console.self, Timer.self]
 
-  init(_ effect: In, _ f: @Sendable @escaping (In.Value) -> Out) {
-    self.run = { continuation in
-      effect.run { value in
-        continuation(f(value))
-      }
-    }
+struct FooError: TaggedError {
+  static let tag = "FooError"
+}
+struct BarError: TaggedError {
+  static let tag = "BarError"
+}
+
+let errors: [Error.Type] = [FooError.self, BarError.self]
+
+struct EffectType<Value> {
+  let value: Value.Type
+  let errors: [TaggedError.Type]
+  let resources: [Resource.Type]
+}
+
+struct EffectType<Value> {
+  let value: Value.Type
+  let resources: [Resource.Type]
+}
+
+let prints = EffectType(
+  value: Void.self,
+  errors: [FooError.self, BarError.self],
+  resources: [Console.self, Timer.self]
+)
+
+func foo() {
+  let type = prints.errors[0].self
+
+  let value = FooError()
+
+  if value.self as type {
+    print("???")
   }
 }
+foo()
 
-let testMap = map(testZip) { a, b in "\(a + 1) - \(b)" }
-testMap.run { print($0) }
+let consoleLive = Console(print: { print($0) })
+let context = ResourceContext.empty().provide(consoleLive)
 
-// flatMap
+helloWorld(context: context)
 
-//func flatMap<In: Effect, Out: Effect>(_ effect: In, _ f: @Sendable @escaping (In.Value) -> Out) -> FlatMap<In, Out> {
-//  FlatMap(effect, f)
-//}
-
-struct flatMap<In: Effect, Out: Effect>: Effect {
-  let run: Run<Out.Value>
-
-  init(_ effect: In, _ f: @Sendable @escaping (In.Value) -> Out) {
-    self.run = { continuation in
-      effect.run { value in
-        f(value).run(continuation)
-      }
-    }
-  }
+func extract<In, Out>(_ f: (In) -> Out) -> (In.Type, Out.Type) {
+  (In.self, Out.self)
 }
 
-enum Console {
-  static let print = { @Sendable (message: String) in succeed(Swift.print(message)) }
-}
-
-flatMap(testZip) { value in
-  Console.print("flatMapped: \(value)")
-}.run {}
-
-struct asyncEffect<A: Sendable>: Effect {
-  let run: Run<A>
-
-  init(_ run: @escaping Run<A>) {
-    self.run = run
-  }
-}
-
-asyncEffect { continuation in
-  continuation(2)
-}
+func x(_ x: String) -> Int { x.count }
+let string = extract(x).0

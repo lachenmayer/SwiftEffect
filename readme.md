@@ -227,7 +227,7 @@ Every `Effectful` now takes a `scheduler: Scheduler` (this should probably be a 
 
 We could also use `DispatchQueue.global().async { continuation() }`, but this requires a `Foundation` import, and doesn't seem to bring any performance benefits, at least for the 100k case. Both run for ~3.4 seconds currently. This seems kind of slow...? (3.4µs per howdy) In ZFS part 3, I can see that their implementation runs in 6 seconds, so at least we're in the same ballpark (one iteration of Moore's law later).
 
-### 2025-03-03
+### 2025-03-03: Attempts at error handling (failed)
 
 The first half of [ZFS part 3](https://www.youtube.com/watch?v=0IU9mGO_9Rw&list=PLvdARMfvom9B21CNSdn88ldDKCWKZ8Kfx&index=3) all seem to be Scala implementation details -- I don't think we need to implement `FiberContext`, because we already have `Task`, which does all of this behind the scenes. I also don't care about executor contexts (yet). `Scheduler` is our current equivalent of this (maybe this should be called `ExecutorContext`), but I don't care about being able to override this just yet. Implementing this with `Task` allows users to run this on any actor, or nonisolated context, so I really don't see what other executor context you would need, apart from maybe some alternate implementations for backwards compatibility.
 
@@ -244,4 +244,43 @@ https://crates.io/crates/env-io exists, this does look very interesting: https:/
 First reaction is that maybe we should maybe try to model effects as an enum after all...  I have a feeling this doesn't actually handle errors as we'd expect.
 
 A next idea is to explicitly model covariance/contravariance using some equivalent of Rust's `PhantomData`. For example: https://gitlab.com/nwn/variance
+
+This does not seem to work, but it's an interesting idea:
+
+```swift
+struct Marker<T> {}
+
+struct Covariant<T> {
+  private let marker: Marker<() -> T> = Marker()
+}
+
+struct Contravariant<T> {
+  private let marker: Marker<(T) -> Void> = Marker()
+}
+
+struct Foo<T> {
+  let x: T
+  private let marker: Contravariant<T> = Contravariant()
+}
+```
+
+Worth exploring in more detail, maybe this could be used in some way (we may need this for resource types).
+
+### 2025-03-08: Error handling
+
+It turns out that typed throws are broken in Swift -- maybe just when the type comes from a protocol's associated type? Either way, attempting to change the definition of `Effectful.value` to `get async throws(Err)` crashed the compiler. I attempted to upgrade to the latest Xcode beta to see if Swift 6.1 could solve this, but no dice.
+
+Because I now have error and value types in a lot of the type definitions, and I can't use `Error` as the type name, I decided to change the associated type names to `Val` and `Err`.
+
+I also defined a nice typealias `Res = Result<Val, Err>` which is very useful.
+
+I renamed `succeed` and `fail` to `success` and `failure` respectively, to match the existing naming on `Result`.
+
+I'm still not sure if error typing is going to work correctly. My current idea is that we define a _class_ `EffectError: Error`, which we can then subclass to define different error types. I'm not sure how this will be used yet.
+
+We can also use this base class as a way of encoding unknown exceptions, ie. Effect's `die`. So far, this comes up when casting error types in `FlatMap` -- I don't think this is sound.
+
+I also removed the specialized implementation for `zip` and `zipWith`, and implemented `zip` using `zipWith`, which is implemented using `flatMap` and `map`, as in the ZFS [implementation](https://github.com/kitlangton/zio-from-scatch/blob/master/src/main/scala/zio/ZIO.scala).
+
+For some reason the types for this don't unify, so I added an explicit cast. This is probably incorrect, but the tests that don't contain errors run fine so far.
 
