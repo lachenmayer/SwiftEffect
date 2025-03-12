@@ -51,3 +51,25 @@ func foo() {
   //  context.require(Console.self)
   print("\(FooX.Type.self)")
 }
+
+struct EffectType {
+  let values: [Any.Type]
+  let errors: [Error.Type]
+  let resources: [Resource.Type]
+}
+
+struct NoSuchElementError: Error {}
+
+let intHeadType = EffectType(values: [Int.self], errors: [NoSuchElementError.self], resources: [])
+
+let stringHeadType = EffectType(values: [String.self], errors: [NoSuchElementError.self], resources: [])
+
+let loggedString = EffectType(values: [String.self], errors: [], resources: [])
+
+func tryIt() {
+  for error in stringHeadType.errors {
+    if error == NoSuchElementError.self {
+      
+    }
+  }
+}
