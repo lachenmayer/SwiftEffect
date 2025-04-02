@@ -40,7 +40,7 @@ The basic `succeed`, `zip`, `map` and `flatMap` operators are easy to implement 
 
 (Swift 6 `Sendable` annotations are absolutely everywhere, as you'd expect...)
 
-I was hoping that we could implement a `@EffectBuilder` analagous to SwiftUI's `@ViewBuilder`, but it seems like it's impossible to implement a monadic bind with result builders ([see this thread from 2019](https://forums.swift.org/t/monadic-dsl-based-on-function-builders/25497), has anything changed since then?). More specifically, we would like to be able to extract the value from an effect, so that we don't need to `flatMap` over the value, eg:
+I was hoping that we could implement a `@EffectBuilder` analogous to SwiftUI's `@ViewBuilder`, but it seems like it's impossible to implement a monadic bind with result builders ([see this thread from 2019](https://forums.swift.org/t/monadic-dsl-based-on-function-builders/25497), has anything changed since then?). More specifically, we would like to be able to extract the value from an effect, so that we don't need to `flatMap` over the value, eg:
 
 ```swift
 // The dream:
@@ -201,7 +201,7 @@ Next up is the stack safety section from ZFS part 2: we define a `repeat(times: 
 }
 ```
 
-Interestingly, we can only run about 2.5k _howdy_s before the stack blows up. I would have expected this to be slightly larger, but maybe this is because we're running this inside a task / async context?
+Interestingly, we can only run about 2.5k `howdy`s before the stack blows up. I would have expected this to be slightly larger, but maybe this is because we're running this inside a task / async context?
 
 In ZFS part 2, they implement a centralized `run` method, which pattern matches over the different `ZIO` case classes. I briefly attempted this solution the other day (on branch `centralized-run`), but I feel like it's impossible to implement this with the Swift type system.
 
